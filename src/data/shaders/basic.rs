@@ -1,4 +1,4 @@
-pub const PATH: &str = "assets/shaders/basic.wgsl";
+pub const NAME: &str = "basic.wgsl";
 
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]

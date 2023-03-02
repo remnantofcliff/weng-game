@@ -18,62 +18,48 @@ impl Type {
 
 pub struct Camera {
     dir: glam::Vec3,
-    aspect: f32,
-    fov_y: f32,
+    yaw: f32,
+    pitch: f32,
     pos: glam::Vec3,
+    projection: glam::Mat4,
     type_: Type,
 }
 
 impl Camera {
+    const FOVY: f32 = 50.0 * 180.0 / std::f32::consts::PI;
     const UP: glam::Vec3 = glam::Vec3::Y;
     const Z_NEAR: f32 = 0.1;
     const Z_FAR: f32 = 100.0;
 
     pub fn build_matrix(&self) -> glam::Mat4 {
-        let view = glam::Mat4::look_to_lh(self.pos, self.dir, Self::UP);
-        let proj = glam::Mat4::perspective_lh(self.fov_y, self.aspect, Self::Z_NEAR, Self::Z_FAR);
-
-        proj * view
+        self.projection * glam::Mat4::look_to_lh(self.pos, self.dir, Self::UP)
     }
+
     pub fn new(surface_width: u32, surface_height: u32) -> Self {
-        Self {
-            dir: glam::Vec3::Z,
+        let mut camera = Self {
             pos: glam::Vec3::new(0.0, 0.0, -1.5),
-            aspect: surface_width as f32 / surface_height as f32,
-            fov_y: f32::to_radians(50.0),
+            projection: glam::Mat4::IDENTITY,
             type_: Type::Fps,
-        }
+            yaw: 0.0,
+            pitch: 0.0,
+            dir: glam::Vec3::Z,
+        };
+
+        camera.resize(surface_width, surface_height);
+
+        camera
     }
 
     pub fn resize(&mut self, new_width: u32, new_height: u32) {
-        self.aspect = new_width as f32 / new_height as f32;
+        self.projection = glam::Mat4::perspective_lh(
+            Self::FOVY,
+            new_width as f32 / new_height as f32,
+            Self::Z_NEAR,
+            Self::Z_FAR,
+        );
     }
 
     pub fn update(&mut self, input: &Input) {
-        let view_speed = 0.5;
-        let mouse_diff = input.mouse_diff() * view_speed;
-
-        let pitch = glam::Quat::from_axis_angle(glam::Vec3::X, mouse_diff.y);
-        let yaw = glam::Quat::from_axis_angle(glam::Vec3::Y, mouse_diff.x);
-        let orientation = pitch * yaw;
-
-        self.dir = orientation * self.dir;
-
-        self.dir.y = self
-            .dir
-            .y
-            .clamp(f32::to_radians(-35.0), f32::to_radians(35.0));
-
-        self.dir = self.dir.normalize();
-
-        let move_speed = 0.01;
-        let movement_dir = self.type_.transform_dir_for_movement(self.dir);
-
-        self.pos += (movement_dir * input.movement().z
-            + movement_dir.cross(Self::UP) * input.movement().x)
-            .normalize_or_zero()
-            * move_speed;
-
         if input.flying_camera() {
             self.type_ = Type::Flying;
         }
@@ -81,5 +67,35 @@ impl Camera {
         if input.fps_camera() {
             self.type_ = Type::Fps;
         }
+
+        {
+            let view_speed = 1.0;
+            let mouse_diff = input.mouse_diff() * view_speed;
+            self.yaw += mouse_diff.x;
+            self.pitch += mouse_diff.y;
+
+            self.pitch = self
+                .pitch
+                .clamp(f32::to_radians(-89.0), f32::to_radians(89.0));
+        }
+
+        let right = self.dir.cross(Self::UP);
+
+        let orientation = {
+            let pitch = glam::Quat::from_axis_angle(right, -self.pitch);
+            let yaw = glam::Quat::from_axis_angle(glam::Vec3::Y, -self.yaw);
+            pitch * yaw
+        };
+
+        self.dir = orientation.mul_vec3(glam::Vec3::Z);
+
+        let move_speed = 0.1;
+
+        let movement_dir = self.type_.transform_dir_for_movement(self.dir);
+
+        self.pos += (movement_dir * input.movement().z
+            + movement_dir.cross(Self::UP) * input.movement().x)
+            .normalize_or_zero()
+            * move_speed;
     }
 }

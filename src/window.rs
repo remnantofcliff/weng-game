@@ -4,14 +4,12 @@ use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 
 pub struct Window {
     context: Glfw,
-    events: std::sync::mpsc::Receiver<(f64, glfw::WindowEvent)>,
     window: glfw::Window,
 }
 
 impl Window {
-    pub fn events(&mut self) -> std::sync::mpsc::TryIter<(f64, glfw::WindowEvent)> {
+    pub fn events(&mut self) {
         self.context.poll_events();
-        self.events.try_iter()
     }
     pub fn get_relative_mouse_position(&self) -> glam::DVec2 {
         let (x, y) = self.window.get_cursor_pos();
@@ -30,13 +28,13 @@ impl Window {
         matches!(self.window.get_key(key), glfw::Action::Press)
     }
 
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new(title: &str, width: u32, height: u32) -> anyhow::Result<Self> {
         let mut context = glfw::init::<()>(glfw::LOG_ERRORS)?;
 
         context.window_hint(glfw::WindowHint::ClientApi(glfw::ClientApiHint::NoApi));
 
-        let (mut window, events) = context
-            .create_window(800, 600, "Title", glfw::WindowMode::Windowed)
+        let (mut window, _) = context
+            .create_window(width, height, title, glfw::WindowMode::Windowed)
             .unwrap();
 
         window.set_cursor_mode(glfw::CursorMode::Disabled);
@@ -46,11 +44,7 @@ impl Window {
             .then(|| {
                 window.set_raw_mouse_motion(true);
 
-                Self {
-                    context,
-                    events,
-                    window,
-                }
+                Self { context, window }
             })
             .ok_or_else(|| anyhow!("Mouse raw motion unsupported"))
     }

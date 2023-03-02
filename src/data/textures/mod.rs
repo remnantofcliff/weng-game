@@ -1,10 +1,11 @@
 use image::{EncodableLayout, ImageError};
+use std::path::Path;
 
-pub mod grass;
+pub static DIR: &str = "assets/textures";
 
 pub fn load(
     graphics: &weng::graphics::Context,
-    path: &str,
+    path: &Path,
     texture_bind_group_layout: &weng::wgpu::BindGroupLayout,
 ) -> Result<weng::wgpu::BindGroup, ImageError> {
     image::open(path).map(|image| {
@@ -17,15 +18,4 @@ pub fn load(
             texture_bind_group_layout,
         )
     })
-}
-
-pub fn load_all<const N: usize>(
-    graphics: &weng::graphics::Context,
-    paths: &[&str; N],
-    texture_bind_group_layout: &weng::wgpu::BindGroupLayout,
-) -> Result<Vec<weng::wgpu::BindGroup>, ImageError> {
-    paths
-        .iter()
-        .map(|path| load(graphics, path, texture_bind_group_layout))
-        .collect::<_>()
 }

@@ -1327,6 +1327,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d0bde887a49e2e09f30ba3b454cdba3fbc971703e436c527f9f69a035b45b9b"
 dependencies = [
  "ahash 0.8.3",
+ "log",
 ]
 
 [[package]]

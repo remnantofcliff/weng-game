@@ -4,6 +4,8 @@ mod input;
 mod time;
 mod window;
 
+use std::path::Path;
+
 use camera::Camera;
 use input::Input;
 use lazy_static::lazy_static;
@@ -22,14 +24,14 @@ lazy_static! {
         data::shaders::basic::Instance {
             model: glam::Mat4::from_rotation_translation(
                 glam::Quat::from_rotation_y(f32::to_radians(15.0)),
-                glam::vec3(2.0, 0.0, 0.0)
+                glam::vec3(10.0, 0.0, 0.0)
             )
             .to_cols_array(),
         },
         data::shaders::basic::Instance {
             model: glam::Mat4::from_rotation_translation(
                 glam::Quat::from_rotation_y(f32::to_radians(30.0)),
-                glam::vec3(3.0, 0.0, 0.0)
+                glam::vec3(100.0, 0.0, 0.0)
             )
             .to_cols_array(),
         },
@@ -39,23 +41,26 @@ lazy_static! {
     ];
 }
 
-fn main() -> anyhow::Result<()> {
+fn run() -> anyhow::Result<()> {
     env_logger::init();
 
-    let mut window = Window::new()?;
+    let mut window = Window::new("title", 1920, 1080)?;
     let mut graphics = weng::graphics::Context::new(&window)?;
 
     let mut camera = Camera::new(graphics.surface_width(), graphics.surface_height());
 
-    let shader = graphics.load_shader(data::shaders::basic::PATH)?;
-
-    let texture_bind_group_layout = graphics.create_texture_bind_group_layout();
+    let shader =
+        graphics.load_shader(&Path::new(data::shaders::DIR).join(data::shaders::basic::NAME))?;
+    let diffuse_texture_bind_group_layout = graphics.create_texture_bind_group_layout();
     let uniform_bind_group_layout = graphics.create_uniform_bind_group_layout();
 
     let render_pipeline = graphics
         .create_pipeline::<data::models::Vertex, data::shaders::basic::Instance>(
             &shader,
-            &[&texture_bind_group_layout, &uniform_bind_group_layout],
+            &[
+                &diffuse_texture_bind_group_layout,
+                &uniform_bind_group_layout,
+            ],
         );
 
     let uniform_buffer = graphics.create_uniform_buffer(&[data::shaders::basic::Uniform {
@@ -63,40 +68,28 @@ fn main() -> anyhow::Result<()> {
     }]);
     let instance_buffer = graphics.create_instance_buffer(INSTANCES.as_slice());
 
-    let mut current_texture_bind_group = 0;
-    let texture_bind_groups = data::textures::load_all(
-        &graphics,
-        &data::textures::grass::PATHS,
-        &texture_bind_group_layout,
-    )?;
-
     let camera_uniform_bind_group =
         graphics.create_uniform_bind_group(&uniform_bind_group_layout, &uniform_buffer);
 
-    let model = data::models::Model::load(&mut graphics, &texture_bind_group_layout)?;
+    let model = data::models::Model::load(&mut graphics, &diffuse_texture_bind_group_layout)?;
 
     let mut input = Input::new();
     let mut time = Time::new();
 
+    let mut fb_size = window.get_framebuffer_size();
+
     while !window.should_close() {
         time.begin_loop();
 
-        for (_, event) in window.events() {
-            if let glfw::WindowEvent::FramebufferSize(width, height) = event {
-                resize(
-                    &mut graphics,
-                    &mut camera,
-                    glam::UVec2::new(width as u32, height as u32),
-                );
-            }
+        let new_fb_size = window.get_framebuffer_size();
+        if fb_size != new_fb_size {
+            resize(&mut graphics, &mut camera, new_fb_size);
         }
+        fb_size = new_fb_size;
+        window.events();
 
         while time.should_update() {
             input.update(&window);
-            input.change_texture().then(|| {
-                current_texture_bind_group =
-                    (current_texture_bind_group + 1) % texture_bind_groups.len()
-            });
             camera.update(&input);
             time.update();
         }
@@ -110,21 +103,14 @@ fn main() -> anyhow::Result<()> {
 
         match graphics.render(
             &render_pipeline,
-            &model
-                .meshes
-                .iter()
-                .map(|mesh| mesh.vertex_buffer.slice(..))
-                .chain(std::iter::once(instance_buffer.slice(..)))
-                .collect::<Vec<_>>(),
-            (
-                index_buffer.slice(..),
-                data::models::pentagon::INDICES.len() as u32,
-            ),
-            (instance_buffer.slice(..), INSTANCES.len() as u32),
-            &[
-                &texture_bind_groups[current_texture_bind_group],
+            &model.vertex_buffers[0],
+            &model.index_buffers[0],
+            &instance_buffer,
+            [
+                &model.bind_groups[model.material_indices[0]],
                 &camera_uniform_bind_group,
-            ],
+            ]
+            .into_iter(),
         ) {
             Ok(_) => (),
             Err(weng::wgpu::SurfaceError::Lost | weng::wgpu::SurfaceError::Outdated) => {
@@ -144,11 +130,17 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn main() {
+    if let Err(e) = run() {
+        println!("{e}");
+    }
+}
+
 fn resize(
     graphics: &mut weng::graphics::Context,
     camera: &mut Camera,
     framebuffer_size: glam::UVec2,
 ) {
-    graphics.resize_surface(framebuffer_size.x, framebuffer_size.y);
+    graphics.resize(framebuffer_size.x, framebuffer_size.y);
     camera.resize(framebuffer_size.x, framebuffer_size.y);
 }
