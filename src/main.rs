@@ -8,38 +8,9 @@ use std::path::Path;
 
 use camera::Camera;
 use input::Input;
-use lazy_static::lazy_static;
+use rand::{Rng, SeedableRng};
 use time::Time;
 use window::Window;
-
-lazy_static! {
-    pub static ref INSTANCES: [data::shaders::basic::Instance; 4] = [
-        data::shaders::basic::Instance {
-            model: glam::Mat4::from_rotation_translation(
-                glam::Quat::from_rotation_y(f32::to_radians(10.0)),
-                glam::vec3(1.0, 0.0, 0.0)
-            )
-            .to_cols_array(),
-        },
-        data::shaders::basic::Instance {
-            model: glam::Mat4::from_rotation_translation(
-                glam::Quat::from_rotation_y(f32::to_radians(15.0)),
-                glam::vec3(10.0, 0.0, 0.0)
-            )
-            .to_cols_array(),
-        },
-        data::shaders::basic::Instance {
-            model: glam::Mat4::from_rotation_translation(
-                glam::Quat::from_rotation_y(f32::to_radians(30.0)),
-                glam::vec3(100.0, 0.0, 0.0)
-            )
-            .to_cols_array(),
-        },
-        data::shaders::basic::Instance {
-            model: glam::Mat4::from_translation(glam::vec3(4.0, 0.0, 0.0)).to_cols_array(),
-        },
-    ];
-}
 
 fn run() -> anyhow::Result<()> {
     env_logger::init();
@@ -51,25 +22,64 @@ fn run() -> anyhow::Result<()> {
 
     let shader =
         graphics.load_shader(&Path::new(data::shaders::DIR).join(data::shaders::basic::NAME))?;
+
     let diffuse_texture_bind_group_layout = graphics.create_texture_bind_group_layout();
-    let uniform_bind_group_layout = graphics.create_uniform_bind_group_layout();
+
+    let camera_bind_group_layout =
+        graphics.create_uniform_bind_group_layout(weng::wgpu::ShaderStages::VERTEX_FRAGMENT);
+    let light_bind_group_layout =
+        graphics.create_uniform_bind_group_layout(weng::wgpu::ShaderStages::VERTEX_FRAGMENT);
+
+    let camera_uniform_buffer =
+        graphics.create_uniform_buffer(&[data::shaders::basic::CameraUniform {
+            pos: glam::Vec4::from((camera.position(), 0.0)).to_array(),
+            view_proj: camera.build_matrix().to_cols_array(),
+        }]);
+    let light_uniform_buffer =
+        graphics.create_uniform_buffer(&[data::shaders::basic::LightUniform {
+            position: [0.0, 0.0, 0.0],
+            _padding: 0,
+            color: [1.0, 1.0, 1.0],
+            _padding2: 0,
+        }]);
+
+    let camera_bind_group =
+        graphics.create_uniform_bind_group(&camera_bind_group_layout, &camera_uniform_buffer);
+    let light_bind_group =
+        graphics.create_uniform_bind_group(&light_bind_group_layout, &light_uniform_buffer);
 
     let render_pipeline = graphics
-        .create_pipeline::<data::models::Vertex, data::shaders::basic::Instance>(
+        .create_pipeline_instanced::<data::models::Vertex, data::shaders::basic::Instance>(
             &shader,
             &[
                 &diffuse_texture_bind_group_layout,
-                &uniform_bind_group_layout,
+                &camera_bind_group_layout,
+                &light_bind_group_layout,
             ],
         );
 
-    let uniform_buffer = graphics.create_uniform_buffer(&[data::shaders::basic::Uniform {
-        camera: camera.build_matrix().to_cols_array(),
-    }]);
-    let instance_buffer = graphics.create_instance_buffer(INSTANCES.as_slice());
+    let mut random = rand::rngs::SmallRng::from_entropy();
 
-    let camera_uniform_bind_group =
-        graphics.create_uniform_bind_group(&uniform_bind_group_layout, &uniform_buffer);
+    let instances: [_; 100] = std::array::from_fn(|_| {
+        let scale = random.gen_range(0.25..4.0);
+        let rotation = random.gen();
+
+        data::shaders::basic::Instance {
+            model: glam::Mat4::from_scale_rotation_translation(
+                glam::Vec3::splat(scale),
+                rotation,
+                glam::Vec3::new(
+                    random.gen_range(-50.0..50.0),
+                    random.gen_range(-10.0..10.0),
+                    random.gen_range(-50.0..50.0),
+                ),
+            )
+            .to_cols_array(),
+            normal: glam::Mat3::from_quat(rotation).to_cols_array(),
+        }
+    });
+
+    let instance_buffer = graphics.create_instance_buffer(&instances);
 
     let model = data::models::Model::load(&mut graphics, &diffuse_texture_bind_group_layout)?;
 
@@ -94,36 +104,41 @@ fn run() -> anyhow::Result<()> {
             time.update();
         }
 
-        uniform_buffer.set(
+        camera_uniform_buffer.set(
             &graphics,
-            &[data::shaders::basic::Uniform {
-                camera: camera.build_matrix().to_cols_array(),
+            &[data::shaders::basic::CameraUniform {
+                pos: glam::Vec4::from((camera.position(), 0.0)).to_array(),
+                view_proj: camera.build_matrix().to_cols_array(),
             }],
         );
 
-        match graphics.render(
+        let render_results = [graphics.render(
             &render_pipeline,
-            &model.vertex_buffers[0],
-            &model.index_buffers[0],
+            &model.meshes[0].vertex_buffer,
+            &model.meshes[0].index_buffer,
             &instance_buffer,
             [
-                &model.bind_groups[model.material_indices[0]],
-                &camera_uniform_bind_group,
+                &model.materials[model.meshes[0].material_indice].texture_bind_group,
+                &camera_bind_group,
+                &light_bind_group,
             ]
             .into_iter(),
-        ) {
-            Ok(_) => (),
-            Err(weng::wgpu::SurfaceError::Lost | weng::wgpu::SurfaceError::Outdated) => {
-                let size = window.get_framebuffer_size();
+        )];
+        for result in render_results {
+            match result {
+                Ok(_) => (),
+                Err(weng::wgpu::SurfaceError::Lost | weng::wgpu::SurfaceError::Outdated) => {
+                    let size = window.get_framebuffer_size();
 
-                resize(&mut graphics, &mut camera, size);
-            }
-            Err(weng::wgpu::SurfaceError::OutOfMemory) => {
-                log::error!("out of memory, exiting");
+                    resize(&mut graphics, &mut camera, size);
+                }
+                Err(weng::wgpu::SurfaceError::OutOfMemory) => {
+                    log::error!("out of memory, exiting");
 
-                break;
+                    return Ok(());
+                }
+                Err(weng::wgpu::SurfaceError::Timeout) => log::warn!("Surface timeout"),
             }
-            Err(weng::wgpu::SurfaceError::Timeout) => log::warn!("Surface timeout"),
         }
     }
 

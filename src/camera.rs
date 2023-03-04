@@ -26,7 +26,7 @@ pub struct Camera {
 }
 
 impl Camera {
-    const FOVY: f32 = 50.0 * 180.0 / std::f32::consts::PI;
+    const FOVY: f32 = 65.0 * std::f32::consts::PI / 180.0;
     const UP: glam::Vec3 = glam::Vec3::Y;
     const Z_NEAR: f32 = 0.1;
     const Z_FAR: f32 = 100.0;
@@ -48,6 +48,10 @@ impl Camera {
         camera.resize(surface_width, surface_height);
 
         camera
+    }
+
+    pub fn position(&self) -> glam::Vec3 {
+        self.pos
     }
 
     pub fn resize(&mut self, new_width: u32, new_height: u32) {
@@ -79,11 +83,11 @@ impl Camera {
                 .clamp(f32::to_radians(-89.0), f32::to_radians(89.0));
         }
 
-        let right = self.dir.cross(Self::UP);
+        let right = -self.dir.cross(Self::UP);
 
         let orientation = {
             let pitch = glam::Quat::from_axis_angle(right, -self.pitch);
-            let yaw = glam::Quat::from_axis_angle(glam::Vec3::Y, -self.yaw);
+            let yaw = glam::Quat::from_axis_angle(glam::Vec3::Y, self.yaw);
             pitch * yaw
         };
 
@@ -93,8 +97,7 @@ impl Camera {
 
         let movement_dir = self.type_.transform_dir_for_movement(self.dir);
 
-        self.pos += (movement_dir * input.movement().z
-            + movement_dir.cross(Self::UP) * input.movement().x)
+        self.pos += (movement_dir * input.movement().z + right * input.movement().x)
             .normalize_or_zero()
             * move_speed;
     }

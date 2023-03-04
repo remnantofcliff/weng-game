@@ -1,21 +1,34 @@
-use image::{EncodableLayout, ImageError};
+use image::ImageError;
 use std::path::Path;
 
 pub static DIR: &str = "assets/textures";
 
-pub fn load(
+pub trait Type {
+    const FORMAT: weng::wgpu::TextureFormat;
+}
+
+pub struct Diffuse;
+pub struct Normal;
+
+impl Type for Diffuse {
+    const FORMAT: weng::wgpu::TextureFormat = weng::wgpu::TextureFormat::Rgba8UnormSrgb;
+}
+
+impl Type for Normal {
+    const FORMAT: weng::wgpu::TextureFormat = weng::wgpu::TextureFormat::Rgba8Unorm;
+}
+
+pub fn load<T: Type>(
     graphics: &weng::graphics::Context,
     path: &Path,
-    texture_bind_group_layout: &weng::wgpu::BindGroupLayout,
-) -> Result<weng::wgpu::BindGroup, ImageError> {
+) -> Result<weng::graphics::textures::Texture, ImageError> {
     image::open(path).map(|image| {
         let rgba8 = image.to_rgba8();
-
-        graphics.create_texture_bind_group(
-            rgba8.as_bytes(),
+        graphics.create_texture(
+            &rgba8,
             rgba8.dimensions().0,
             rgba8.dimensions().1,
-            texture_bind_group_layout,
+            T::FORMAT,
         )
     })
 }
